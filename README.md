@@ -1,2 +1,2 @@
 # AgroClmInd
-PhD work with Agroclimate Indices relating too crop failure.
+PhD work with Agroclimate Indices relating to crop failure.
