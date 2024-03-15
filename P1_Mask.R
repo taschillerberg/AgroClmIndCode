@@ -9,15 +9,11 @@
 #
 # T. A. Schillerberg
 #               Aug. 2020
-#      Updated: Dec. 2020
+#      Updated: Aug. 2021
 
-# setwd("~/OneDrive - Auburn University/Research/AgroclimaticConditions/Code")
-# fileloc1 <- '~/OneDrive - Auburn University/Research/AgroclimaticConditions/Data/EarthStat/'
-# fileloc2 <- '~/OneDrive - Auburn University/Research/AgroclimaticConditions/Data/'
-
-setwd("C:/Users/tas0053/OneDrive - Auburn University/Research/AgroclimaticConditions/Code")
-fileloc1 <- 'C:/Users/tas0053/OneDrive - Auburn University/Research/AgroclimaticConditions/Data/EarthStat/'
-fileloc2 <- 'C:/Users/tas0053/OneDrive - Auburn University/Research/AgroclimaticConditions/Data/'
+setwd("")
+fileloc1 <- '/Research/AgroclimaticConditions/Data/EarthStat/'
+fileloc2 <- '/Research/AgroclimaticConditions/Data/'
 
 options(show.error.locations = TRUE)
 
@@ -27,6 +23,8 @@ library(sp)
 library(ggplot2)
 library(ncdf4)
 library(tidyverse)
+library(rgdal)
+library(maptools)       # For unionSpatialPolygons()
 
 # Functions ####################################################################
 
@@ -73,33 +71,40 @@ loc <- '_HarvAreaYield_Geotiff/'
 
 # Create a data file mask
 mask <- tibble(latlon) %>%
-  add_column(cropland = -999) %>%
-  add_column(maize = -999) %>%
-  add_column(rice = -999) %>%
-  add_column(soya = -999) %>%
-  add_column(wheat = -999) %>%
-  add_column(total_a = -999) %>%
-  add_column(maize_a = -999) %>%
-  add_column(rice_a = -999) %>%
-  add_column(soya_a = -999) %>%
-  add_column(wheat_a = -999) %>%
-  add_column(cropland2 = -999) %>%
-  add_column(maize2 = -999) %>%
-  add_column(rice2 = -999) %>%
-  add_column(soya2 = -999) %>%
-  add_column(wheat2 = -999)
+  add_column(CroplandArea = -999) %>%
+  add_column(MaizeArea = -999) %>%
+  add_column(RiceArea = -999) %>%
+  add_column(SoyaArea = -999) %>%
+  add_column(WheatArea = -999) %>%
+  add_column(Land = -999) %>%
+  add_column(Cropland = 0) %>%
+  add_column(Maize = 0) %>%
+  add_column(Rice = 0) %>%
+  add_column(Soya = 0) %>%
+  add_column(Wheat = 0) %>%
+  add_column(CroplandDate = 0) %>%
+  add_column(MaizeDate = 0) %>%
+  add_column(RiceDate = 0) %>%
+  add_column(SoyaDate = 0) %>%
+  add_column(WheatDate = 0) %>%
+  add_column(WWheatDate = 0)
+# Total area, Maize area, Rice area, Soya area, Wheat area,
+# Land, Cropland (maize, rice, soya, or wheat), Maize cropland, 
+# Rice cropland, Soya cropland, CroplandDate (dates avaliable for planting/harvest),
+# MaizeDate (dates avaliable), RiceDate (dates avaliable), 
+# SoyaDate (dates avaliable), WheatDate (dates avaliable)
 
 for (i in 1:length(crop)){
   #  Open the tiff files
   dat <- raster(paste(fileloc1, crop[i], loc, crop[i], loc, crop[i],
                       '_HarvestedAreaHectares.tif', sep=''))
-  #  Look at the attributes
-  dat
+  # #  Look at the attributes
+  # dat
   #  Calculate and save the min and max values of the raster to the raster obj
   dat <- setMinMax(dat)
-  #  Distribution of the raster pixel values
+  # #  Distribution of the raster pixel values
   # hist(dat, main = 'Distribution of Harvested Area Hectares', col = 'purple')
-  #  Plot the raster data
+  # #  Plot the raster data
   plot(dat, main = paste(crop[i], ' Harvested Area Hectares'))
   
   #  Re-Sampling raster to be the same resolution via calculating the sum of the
@@ -107,63 +112,32 @@ for (i in 1:length(crop)){
   dat.resize <- raster::aggregate(dat, 6, fun=sum) %>%
     raster::flip(direction = 2) # Flips over the y axis
   dat.resize
-  plot(dat.resize, main = paste(crop[i], ' Harvested Area Hectares Resized'))
+  # plot(dat.resize, main = paste(crop[i], ' Harvested Area Hectares Resized'))
   
   # Put into the dataframe 
   dat.resize.matrix <- as.matrix(dat.resize)
   dimnames(dat.resize.matrix) <- list(lat, lon)
-  mask[,(i+10)] <- apply(X = latlon, MARGIN = 1, FUN = pt_latlon, datX = dat.resize.matrix)
+  # Fill the area column
+  mask[,(i+5)] <- apply(X = latlon, MARGIN = 1, FUN = pt_latlon, datX = dat.resize.matrix)
 }
 
 rm(i, dat, dat.resize, dat.resize.matrix)
 
 # 1.3 Fill and format the mask ##########
 # Add the column areas together to get the total
-mask$maize_a[is.na(mask$maize_a) == TRUE] <- NA
-mask$rice_a[is.na(mask$maize_a) == TRUE] <- NA
-mask$soya_a[is.na(mask$maize_a) == TRUE] <- NA
-mask$wheat_a[is.na(mask$maize_a) == TRUE] <- NA
+mask$CroplandArea <- mask$MaizeArea + mask$RiceArea + mask$SoyaArea + mask$WheatArea
 
-mask$maize[is.na(mask$maize_a) == TRUE] <- NA
-mask$rice[is.na(mask$maize_a) == TRUE] <- NA
-mask$soya[is.na(mask$maize_a) == TRUE] <- NA
-mask$wheat[is.na(mask$maize_a) == TRUE] <- NA
+# Create the land mask
+mask$Land[is.na(mask$MaizeArea) == TRUE] <- 0
+mask$Land[mask$Land == -999] <- 1 # Does not capture Antartica
 
-# Add the column areas together to get the total
-mask$total_a <- mask$maize_a+ mask$rice_a + mask$soya_a + mask$wheat_a
-
-# Change land with no cropland to 0 and NA
-mask$maize[mask$maize_a == 0] <- 0
-mask$rice[mask$rice_a == 0] <- 0
-mask$soya[mask$soya_a == 0] <- 0
-mask$wheat[mask$wheat_a == 0] <- 0
-
-mask$maize_a[mask$maize_a == 0] <- NA
-mask$rice_a[mask$rice_a == 0] <- NA
-mask$soya_a[mask$soya_a == 0] <- NA
-mask$wheat_a[mask$wheat_a == 0] <- NA
-
-# Converting to ones
-mask$cropland[is.na(mask$total_a) == TRUE] <- NA
-mask$cropland[mask$total_a == 0] <- 0
-mask$cropland[mask$total_a > 0] <- 1
-mask$maize[mask$maize_a > 0] <- 1
-mask$rice[mask$rice_a > 0] <- 1
-mask$soya[mask$soya_a > 0] <- 1
-mask$wheat[mask$wheat_a > 0] <- 1
-
-mask$total_a[mask$total_a == 0] <- NA
-
-# 1.4 Save the mask ##########
-
-outfile <- "EarthStat_Mask_HarvestedArea_sum_Dec2020"
-write.csv(mask, file = paste(fileloc1, outfile, '.csv', sep = ''), row.names = FALSE)
-print('End of Part I ctreation of the mask')
-rm(outfile)
-#      For the cropland, maize, rice, soya, wheat columns there is a 
-# NA (ocean/water), 0 (land/non-cropland/crop), or 1 (cropland/crop). For the 
-# remaining columns total_a, maize_a, rice_a, soya_a, wheat_a the fill values 
-# are NA (ocean, water, non-cropland) or >0.00 (cropland in ha).
+# Create the Cropland Masks
+mask$Cropland[mask$CroplandArea > 0] <- 1
+mask$Maize[mask$MaizeArea > 0] <- 1
+mask$MaizeArea[is.na(mask$MaizeArea) == TRUE] <- 0
+mask$Rice[mask$RiceArea > 0] <- 1
+mask$Soya[mask$SoyaArea > 0] <- 1
+mask$Wheat[mask$WheatArea > 0] <- 1
 
 # PART II -- Planting and Harvesting ###########################################
 #     This section will open the planning and harvesting nc files and create 
@@ -173,7 +147,7 @@ rm(outfile)
 
 # 2.1. Variables needed ##########
 loc <- 'Sacks2010/'
-crop <- c('Maize.crop', 'Rice.crop','Soybeans.crop', 'Wheat.crop', 
+crop2 <- c('Maize.crop', 'Rice.crop','Soybeans.crop', 'Wheat.crop', 
           'Wheat.Winter.crop')
 season <- c('plant', 'plant.start', 'plant.end','plant.range', 
             'harvest', 'harvest.start','harvest.end','harvest.range')
@@ -182,11 +156,11 @@ season <- c('plant', 'plant.start', 'plant.end','plant.range',
 
 Crop_season <- list()
 
-for (i in 1:length(crop)){
+for (i in 1:length(crop2)){
   crop_date <- tibble(latlon) %>%
     cbind(matrix(data = -999, nrow = dim(latlon)[1], ncol = length(season)))
   
-  dat_nc <- ncdf4::nc_open(paste(fileloc2, loc, crop[i], 
+  dat_nc <- ncdf4::nc_open(paste(fileloc2, loc, crop2[i], 
                                  '.calendar.fill.nc', sep=''))
   lat_nc <- ncdf4::ncvar_get(dat_nc, 'latitude')
   lon_nc <- ncdf4::ncvar_get(dat_nc, 'longitude')
@@ -208,27 +182,31 @@ for (i in 1:length(crop)){
   }
   ncdf4::nc_close(dat_nc)
   colnames(crop_date) <- c(colnames(latlon),season)
-  name <- crop[i]
+  name <- crop2[i]
   Crop_season[[name]] <- crop_date
 }
+rm(crop_date, dat_nc, lat_nc, lon_nc, dat, fillvalue, dat.matrix, name)
 
-###### Make sure that cropland and planting days match
-mask$maize2 <- mask$maize
-mask$rice2 <- mask$rice
-mask$soya2 <- mask$soya
-mask$wheat2 <- mask$wheat
-mask$maize2[is.na(Crop_season[["Maize.crop"]]$plant) | is.na(Crop_season[["Maize.crop"]]$plant.start) | is.na(Crop_season[["Maize.crop"]]$plant.end)] <- NA
-mask$maize2[is.na(Crop_season[["Maize.crop"]]$harvest) | is.na(Crop_season[["Maize.crop"]]$harvest.start) | is.na(Crop_season[["Maize.crop"]]$harvest.end)] <- NA
-mask$rice2[is.na(Crop_season[["Rice.crop"]]$plant) | is.na(Crop_season[["Rice.crop"]]$plant.start) | is.na(Crop_season[["Rice.crop"]]$plant.end)] <- NA
-mask$rice2[is.na(Crop_season[["Rice.crop"]]$harvest) | is.na(Crop_season[["Rice.crop"]]$harvest.start) | is.na(Crop_season[["Rice.crop"]]$harvest.end)] <- NA
-mask$soya2[is.na(Crop_season[["Soybeans.crop"]]$plant) | is.na(Crop_season[["Soybeans.crop"]]$plant.start) | is.na(Crop_season[["Soybeans.crop"]]$plant.end)] <- NA
-mask$soya2[is.na(Crop_season[["Soybeans.crop"]]$harvest) | is.na(Crop_season[["Soybeans.crop"]]$harvest.start) | is.na(Crop_season[["Soybeans.crop"]]$harvest.end)] <- NA
-mask$wheat2[is.na(Crop_season[["Wheat.crop"]]$plant) | is.na(Crop_season[["Wheat.crop"]]$plant.start) | is.na(Crop_season[["Wheat.crop"]]$plant.end)] <- NA
-mask$wheat2[is.na(Crop_season[["Wheat.crop"]]$harvest) | is.na(Crop_season[["Wheat.crop"]]$harvest.start) | is.na(Crop_season[["Wheat.crop"]]$harvest.end)] <- NA
+# Make sure that cropland and planting days match
+mask$MaizeDate <- mask$Maize
+mask$RiceDate <- mask$Rice
+mask$SoyaDate <- mask$Soya
+mask$WheatDate <- mask$Wheat
+mask$WWheatDate <- mask$WheatDate
+mask$MaizeDate[is.na(Crop_season[["Maize.crop"]]$plant) | is.na(Crop_season[["Maize.crop"]]$plant.start) | is.na(Crop_season[["Maize.crop"]]$plant.end)] <- 0
+mask$MaizeDate[is.na(Crop_season[["Maize.crop"]]$harvest) | is.na(Crop_season[["Maize.crop"]]$harvest.start) | is.na(Crop_season[["Maize.crop"]]$harvest.end)] <- 0
+mask$RiceDate[is.na(Crop_season[["Rice.crop"]]$plant) | is.na(Crop_season[["Rice.crop"]]$plant.start) | is.na(Crop_season[["Rice.crop"]]$plant.end)] <- 0
+mask$RiceDate[is.na(Crop_season[["Rice.crop"]]$harvest) | is.na(Crop_season[["Rice.crop"]]$harvest.start) | is.na(Crop_season[["Rice.crop"]]$harvest.end)] <- 0
+mask$SoyaDate[is.na(Crop_season[["Soybeans.crop"]]$plant) | is.na(Crop_season[["Soybeans.crop"]]$plant.start) | is.na(Crop_season[["Soybeans.crop"]]$plant.end)] <- 0
+mask$SoyaDate[is.na(Crop_season[["Soybeans.crop"]]$harvest) | is.na(Crop_season[["Soybeans.crop"]]$harvest.start) | is.na(Crop_season[["Soybeans.crop"]]$harvest.end)] <- 0
+mask$WheatDate[is.na(Crop_season[["Wheat.crop"]]$plant) | is.na(Crop_season[["Wheat.crop"]]$plant.start) | is.na(Crop_season[["Wheat.crop"]]$plant.end)] <- 0
+mask$WheatDate[is.na(Crop_season[["Wheat.crop"]]$harvest) | is.na(Crop_season[["Wheat.crop"]]$harvest.start) | is.na(Crop_season[["Wheat.crop"]]$harvest.end)] <- 0
+mask$WWheatDate[is.na(Crop_season[["Wheat.Winter.crop"]]$plant) | is.na(Crop_season[["Wheat.Winter.crop"]]$plant.start) | is.na(Crop_season[["Wheat.crop"]]$plant.end)] <- 0
+mask$WWheatDate[is.na(Crop_season[["Wheat.Winter.crop"]]$harvest) | is.na(Crop_season[["Wheat.Winter.crop"]]$harvest.start) | is.na(Crop_season[["Wheat.crop"]]$harvest.end)] <- 0
 
-mask$cropland2 <- mask$maize2 + mask$rice2 + mask$soya2 + mask$wheat2
-mask$cropland2[mask$cropland2 > 1] <- 1
-outfile <- "EarthStat_Mask_HarvestedArea_sum_Dec2020_2"
+mask$CroplandDate <- mask$MaizeDate + mask$RiceDate + mask$SoyaDate + mask$WheatDate + mask$WWheatDate
+mask$CroplandDate[mask$CroplandDate > 1] <- 1
+outfile <- "EarthStat_Sacks_Mask"
 write.csv(mask, file = paste(fileloc1, outfile, '.csv', sep = ''), row.names = FALSE)
 
 rm(crop, season, dat_nc, lat_nc, lon_nc, dat, dat.matrix, crop_date, 
@@ -244,114 +222,216 @@ for (i in 1:length(names(Crop_season))){
 rm(dat, i, loc)
 
 print('End Part II Planting and Harvesting Dates')
-stop() 
-# PART III -- Testing ##########################################################
-#     This section is for testing the ploting and is not currently necessary to 
-# include and run
+
+# PART III -- Regions Mask IPCC ################################################
+#     This section will convert the spatial polygon into a mask to be used later
 #
-# References: 
+# References: https://gis.stackexchange.com/questions/61633/convert-a-spatial-polygon-object-to-data-frame-using-r
+# https://gis.stackexchange.com/questions/88830/overlaying-spatial-polygon-with-grid-and-checking-in-which-grid-element-specific
 
-# 3.1 Calculating the differences ##########
-# Visually the maps look similar which is why the filled version of the planting
-# and harvesting dates were used, because otherwise there were regions that were
-# left out. For example maize in N. America stretched into Canada but was not 
-# represented in Sacks 2010 unfilled data
+# 3.1 Variables Needed ##########
+lat <- seq(-89.75, 89.75, by = 0.5) # y-axis
+lon <- seq(-179.75, 179.75, by = 0.5) # x-axis
+latlon <- expand.grid(lat, lon) %>%
+  rename('lat' = 'Var1') %>%
+  rename('lon' = 'Var2')
 
-differences <- tibble(latlon) %>%
-  matrix(data = -999, nrow = dim(latlon)[1], ncol = 8)
+latID <- seq(1, length(lat), by = 1)
+lonID <- seq(1, length(lon), by = 1)
+latlonID <- expand.grid(latID, lonID) %>%
+  rename('latID' = 'Var1') %>%
+  rename('lonID' = 'Var2')
 
-
-
-
-# 3.2 Ploting ##########
-obs <- mask$cropland
-df_obs <- data.frame(latlon$lat, latlon$lon, obs)
-
-# If the y-axis needs flipped
-# df_obs$lat <- df_obs$lat * -1
-colnames(df_obs) <- c('lat', 'lon', 'obs')
-limits <- round(range(df_obs$obs, na.rm = TRUE))
-
-# world map 
+latlon <- cbind(latlon, latlonID)
+rm(latID, lonID, latlonID)
 baseData <- map_data('world')
+load(paste0(fileloc2,"IPCC6Regions/IPCC-WGI-reference-regions-v4_R.rda"), verbose = TRUE)
 
-# ploting and saving
-p1_obs <- ggplot(data=df_obs, aes(x=lon,y=lat, fill=obs)) +   theme_bw() +
-  labs(title=paste("Testing",sep=""), x="", y="")+ 
-  theme(plot.title = element_text(hjust = 0.5, size=15)) +
-  geom_tile() + 
-  # scale_fill_discrete(na.value="white", limits=limits)+
-  scale_fill_gradient(low="blue", high="yellow", na.value="white", limits=limits) +
-  #scale_colour_gradientn(name = "",colours = terrain.colors(10), 
-  #                       limits=limits ,na.value="white") + 
-  geom_polygon(data=baseData, aes(x=long, y=lat, group=group), 
-               colour="black", fill="white", alpha=0) +
-  coord_fixed(ratio=1.1, xlim=range(df_obs$lon), ylim=range(df_obs$lat), expand = FALSE)+ 
-  theme(legend.position="bottom",legend.title = element_blank())+ 
-  theme(legend.key.height  = unit(0.5, "cm"), 
-        legend.direction="horizontal",legend.text = element_text(size = 15))+
-  theme(plot.margin=margin(t=0,unit="cm"))+
-  theme(axis.text=element_text(size=15),
-        axis.title=element_text(size=10,face="bold"))+
-  theme(legend.key.size = unit(1.5, "cm"))
-plot(p1_obs)
+# 3.2 Formating ##########
+refregions <- as(IPCC_WGI_reference_regions_v4, "SpatialPolygons")
+refregions_QGIS <- readOGR(paste0(fileloc2,"IPCC6Regions/IPCC-WGI-reference-regions-v4_shapefile_2/RegionV1_3.shp"))
+refregions <- refregions_QGIS
 
+grid <- raster(extent(refregions), resolution = c(0.5, 0.5), crs=proj4string(refregions))
+pts <- rasterToPoints(grid, spatial = T)
 
-
-# 3.3 Plotting for PowerPoint ##########
-# includes regions
-
-df_obs$obs[df_obs$obs == 0] <- NA
-df_obs$obs[df_obs$obs == 1] <- 'crop'
-mycolors <- c('#e4710d') # Same color as text on Powerpoint GSA Presentation
-regions <- read_csv(paste(fileloc1, 'BreadbasketRegions.csv', sep=''), 
-                    col_names = TRUE) 
-
-
-p1_obs <- ggplot(data=na.omit(df_obs), aes(x=lon, y=lat, fill=obs)) +
+summary(IPCC_WGI_reference_regions_v4)
+summary(refregions)
+# ID2 <- over(pts, IPCC_WGI_reference_regions_v4) %>%
+#   cbind(as.data.frame(pts)) %>%
+#   arrange(x,y, by_group=FALSE)
+ID <- over(pts, refregions) %>%
+  cbind(as.data.frame(pts)) %>%
+  arrange(x,y, by_group=FALSE)
+ggplot(data=ID, aes(x=x, y=y)) +
   theme_bw() +
-  geom_tile() +
-  scale_fill_manual(values = mycolors, labels = c('Cropland')) +
+  geom_tile((aes(fill = Acronym))) +
+  scale_fill_discrete() +
   geom_polygon(data=baseData, aes(x=long, y=lat, group=group),
                colour="black", fill="white", alpha=0) +
   coord_fixed(ratio=1, xlim=c(-180,180), ylim=c(-84,90), expand = FALSE) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[1], xmax=regions$TRlon[1], 
-  #                                      ymin=regions$BLlat[1], ymax=regions$TRlat[1], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[2], xmax=regions$TRlon[2], 
-  #                                      ymin=regions$BLlat[2], ymax=regions$TRlat[2], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[3], xmax=regions$TRlon[3], 
-  #                                      ymin=regions$BLlat[3], ymax=regions$TRlat[3], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[4], xmax=regions$TRlon[4], 
-  #                                      ymin=regions$BLlat[4], ymax=regions$TRlat[4], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[5], xmax=regions$TRlon[5], 
-  #                                      ymin=regions$BLlat[5], ymax=regions$TRlat[5], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[6], xmax=regions$TRlon[6], 
-  #                                      ymin=regions$BLlat[6], ymax=regions$TRlat[6], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[7], xmax=regions$TRlon[7], 
-  #                                      ymin=regions$BLlat[7], ymax=regions$TRlat[7], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[8], xmax=regions$TRlon[8], 
-  #                                      ymin=regions$BLlat[8], ymax=regions$TRlat[8], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[9], xmax=regions$TRlon[9], 
-  #                                      ymin=regions$BLlat[9], ymax=regions$TRlat[9], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[10], xmax=regions$TRlon[10], 
-  #                                      ymin=regions$BLlat[10], ymax=regions$TRlat[10], fill=NA),
-  #           color='#115fbf', size = 1) +
-  # geom_rect(data = NULL, mapping = aes(xmin=regions$BLlon[11], xmax=regions$TRlon[11], 
-  #                                      ymin=regions$BLlat[11], ymax=regions$TRlat[11], fill=NA),
-  #           color='#115fbf', size = 1) +
-  theme(legend.position="bottom",legend.title = element_blank()) +
-  theme(plot.margin=margin(t=0.5, r=0.5, unit="cm")) +
-  labs(title = 'Cropland', x = 'Longitude', y = 'Latitude')
-ggsave(p1_obs, filename = paste0(fileloc1, "Cropland",'.tiff'), 
-       width = 8, height = 5, dpi=350)
+  theme(legend.position="bottom", legend.title = element_blank()) +
+  theme(plot.margin=margin(t=0.5, r=0.5, unit="cm"))
+
+ID$Acronym <- ID$Acronym %>% 
+  as.character()
+ID$Type <- ID$Type %>%
+  as.character()
+ID$Name <- ID$Name %>%
+  as.character()
+# 1
+m <- which(ID$Acronym == 'CNA')
+ID$Acronym[m] <- 'NAM'; ID$Name[m] <- 'North America'
+# 2
+m <- which(ID$Acronym == 'CAR')
+ID$Acronym[m] <- 'CAC'; ID$Name[m] <- 'Central America & Caribbean'
+# 3
+m <- which(ID$Acronym == 'SAM')
+ID$Acronym[m] <- 'SAM'; ID$Name[m] <- 'Tropical South America'
+# 4
+m <- which(ID$Acronym == 'SSA')
+ID$Acronym[m] <- 'TSA'; ID$Name[m] <- 'Temprate South America'
+# 5
+m <- which(ID$Acronym == 'WAF')
+ID$Acronym[m] <- 'SAF'; ID$Name[m] <- 'Sub-Sahara Africa'
+# 6
+m <- which(ID$Acronym == 'WCE')
+ID$Acronym[m] <- 'EUM'; ID$Name[m] <- 'Europe & Mediterranean'
+# 7
+m <- which(ID$Acronym == 'ARP')
+ID$Acronym[m] <- 'WCA'; ID$Name[m] <- 'West-Central Asia'
+# 8
+m <- which(ID$Acronym == 'SEA')
+ID$Acronym[m] <- 'SEA'; ID$Name[m] <- 'South & Southeast Asia'
+# 9
+m <- which(ID$Acronym == 'EAS')
+ID$Acronym[m] <- 'EAS'; ID$Name[m] <- 'East Asia'
+# 10
+m <- which(ID$Acronym == 'NAU')
+ID$Acronym[m] <- 'OCE'; ID$Name[m] <- 'Oceania'
+
+Acr <- ID$Acronym %>% 
+  unique() %>% 
+  na.exclude()
+
+Region <- as.character(ID$Name) %>%
+  unique() %>% 
+  na.exclude()
+
+mask <- matrix(0, nrow = dim(latlon)[1], ncol=length(Acr)) %>%
+  as.data.frame()
+for (i in 1:length(Acr)){
+  mask[,i] <- replace(mask[,i],ID$Acronym == Acr[i], 1 )
+}
+colnames(mask) <- Acr
+dat <- cbind(latlon, ID[,1:4], mask)
+
+# Testing
+ggplot(data=dat, aes(x=lon, y=lat)) +
+  theme_bw() +
+  geom_tile(aes(fill = CAC)) +
+  scale_fill_continuous() +
+  geom_polygon(data=baseData, aes(x=long, y=lat, group=group),
+               colour="black", fill="white", alpha=0) +
+  coord_fixed(ratio=1, xlim=c(-180,180), ylim=c(-84,90), expand = FALSE) +
+  theme(legend.position="bottom", legend.title = element_blank()) +
+  theme(plot.margin=margin(t=0.5, r=0.5, unit="cm"))
+
+# 3.3 Creating a DataFrame ##########
+regions <- tibble(Region) %>%
+  add_column(Acr) %>%
+  add_column(Type = Acr)
+
+for (i in 1:dim(regions)[1]){
+  m <- which(ID$Acronym == regions$Acr[i])
+  regions$Type[i] <- ID$Type[m[1]]
+}
+
+# Modify to be only regions needed
+crop <- matrix(0, nrow = dim(regions)[1], ncol = 4)
+colnames(crop) <- c('Maize','Rice','Soy','Wheat')
+regions <- cbind(regions, crop)
+# 1
+m <- which(regions$Acr == 'NAM')
+regions[m,4:7] <- c('1','1','1','1')
+# 2
+m <- which(regions$Acr == 'CAC')
+regions[m,4:7] <- c('1','1','1','1')
+# 3
+m <- which(regions$Acr == 'SAM')
+regions[m,4:7] <- c('1','1','1','1')
+# 4
+m <- which(regions$Acr == 'TSA')
+regions[m,4:7] <- c('1','1','1','1')
+# 5
+m <- which(regions$Acr == 'SAF')
+regions[m,4:7] <- c('1','1','1','1')
+# 6
+m <- which(regions$Acr == 'EUM')
+regions[m,4:7] <- c('1','1','1','1')
+# 7
+m <- which(regions$Acr == 'WCA')
+regions[m,4:7] <- c('1','1','0','1')
+# 8
+m <- which(regions$Acr == 'SEA')
+regions[m,4:7] <- c('1','1','1','1')
+# 9
+m <- which(regions$Acr == 'EAS')
+regions[m,4:7] <- c('1','1','1','1')
+# 10
+m <- which(regions$Acr == 'OCE')
+regions[m,4:7] <- c('1','1','0','1')
+
+# dat <- dat[,which(names(dat) %in% c('lat','lon','latID','lonID','Name','CAC','EAS',
+#                                     'EUM','NAM','OCE','SEA','SAF','TSA','SAM','WCA'))]
+
+# 3.4 Saving ##########
+write.csv(dat, file = paste0(fileloc2, 'IPCC6Regions/IPCC6RegionsMask.csv'), row.names = FALSE)
+write.csv(regions, file = paste0(fileloc2, 'IPCC6Regions/IPCC6Regions.csv'), row.names = FALSE)
+rm(refregions, grid, pts, Acr, Region, mask, m, regions)
 
 
+# PART IV -- Regions Mask Orginal ##############################################
+#     This section will convert region to a mask format
+# 
+# References: 
+
+# 4.1 Variables Needed ###########
+regions <- read_csv(paste0(fileloc1, 'BreadbasketRegions.csv'), 
+                    col_names = TRUE) 
+
+dat <- latlon %>%
+  cbind(matrix('NOT', nrow=nrow(latlon), ncol = 1)) %>%
+  cbind(matrix('Ocean', nrow=nrow(latlon), ncol = 1)) %>%
+  cbind(matrix('NOT', nrow=nrow(latlon), ncol = 1)) %>%
+  cbind(matrix('NOT', nrow=nrow(latlon), ncol = 1)) %>%
+  cbind(matrix(0, nrow = nrow(latlon), ncol = (dim(regions)[1])))
+
+colnames(dat) <- c(colnames(latlon), "Continent","Type","Name","Acronym", regions$Name)
+dat$Continent <- as.character(dat$Continent)
+dat$Type <- as.character(dat$Type)
+dat$Name <- as.character(dat$Name)
+dat$Acronym <- as.character(dat$Acronym)
+
+# 4.2 Creating a data frame ##########
+for (i in 1:dim(regions)[1]){
+  lonR <- seq(regions$BLlon[i], regions$TRlon[i], by = 0.5)
+  latR <- seq(regions$BLlat[i], regions$TRlat[i], by = 0.5)
+  
+  #Filling of the regional dataframe 
+  for (j in 1:length(lonR)){
+    m <- which(dat$lon == lonR[j] & dat$lat == latR[1])
+    dat[m:(m+length(latR)-1), (5)] <- regions$Continent[i]
+    dat[m:(m+length(latR)-1), (6)] <- regions$Type[i]
+    dat[m:(m+length(latR)-1), (7)] <- regions$Name[i]
+    dat[m:(m+length(latR)-1), (8)] <- regions$Acronym[i]
+    dat[m:(m+length(latR)-1), (8+i)] <- 1
+  }
+}
+
+regions <- cbind(regions$Name, regions$Acronym, regions$Type)
+colnames(regions) <- c('Name','Acronym','Type')
+
+# 4.3 Saving ###########
+write.csv(dat, file = paste0(fileloc1, 'RegionsMask.csv'), row.names = FALSE)
+write.csv(regions, file = paste0(fileloc1, 'Regions.csv'), row.names = FALSE)
